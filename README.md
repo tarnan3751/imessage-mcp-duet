@@ -5,12 +5,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tszaks/imessage-mcp/actions/workflows/ci.yml"><img src="https://github.com/tszaks/imessage-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/tszaks/imessage-mcp/releases/latest"><img src="https://img.shields.io/github/v/release/tszaks/imessage-mcp" alt="Latest release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/tszaks/imessage-mcp" alt="MIT license"></a>
+  <a href="https://github.com/tarnan3751/imessage-mcp-duet/actions/workflows/ci.yml"><img src="https://github.com/tarnan3751/imessage-mcp-duet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/tarnan3751/imessage-mcp-duet" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/macOS-required-blue" alt="macOS">
   <img src="https://img.shields.io/badge/Node-18%E2%80%9325-green" alt="Node 18 to 25">
 </p>
+
+This is my fork of [tszaks/imessage-mcp](https://github.com/tszaks/imessage-mcp). I added an HTTP mode with an OAuth sign-in so I can add it to Claude as a custom connector and reach my messages from anywhere, served from my Mac through Tailscale Funnel. The local stdio mode works the same as upstream. See [Remote access](#remote-access-claude-custom-connector).
 
 ```text
 You:    What did Mom text me today?
@@ -34,6 +35,7 @@ It exists because other iMessage tools only read the `text` column of `chat.db`.
 - **Send behind a confirmation.** `send_message`, `send_message_batch` and `react_to_message` do nothing unless `confirm` is `true`. Batches also need an approval token from a preview call.
 - **iMessage and SMS/RCS.** Choose a service, or let `auto` pick one. An opt-in flag retries by SMS/RCS when a blue bubble fails.
 - **Outreach helpers.** Structured chat lists, follow-up detection and delivery-failure reports.
+- **Remote mode.** `--http` serves the same tools over Streamable HTTP with an OAuth sign-in, for Claude custom connectors. A LaunchAgent keeps it running whenever you are logged in.
 - **Dangerous tools stay off by default.** Deleting and UI-driven editing are behind [release flags](#release-flags).
 
 ## Install
@@ -47,8 +49,8 @@ Requirements:
 The package is not on npm. Install from source:
 
 ```bash
-git clone https://github.com/tszaks/imessage-mcp.git
-cd imessage-mcp
+git clone https://github.com/tarnan3751/imessage-mcp-duet.git
+cd imessage-mcp-duet
 npm install
 node index.js   # prints "iMessage MCP server v... running on stdio", then waits for an MCP client
 ```
@@ -103,7 +105,96 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart the client after editing. Grant permissions to the app that launches the server (the client or its terminal), not to Node itself.
+Restart the client after editing. Grant permissions to the app that launches the server (the client or its terminal), not to Node itself. Remote mode is the exception, see below.
+
+## Remote access (Claude custom connector)
+
+Remote mode runs the server on your Mac as an HTTP endpoint so Claude on the web and on your phone can use it as a custom connector. Tailscale Funnel gives the Mac a public `https://<machine>.<tailnet>.ts.net` address and forwards it to the server on `127.0.0.1`. Funnel is free on the Tailscale Personal plan and needs no domain.
+
+```text
+Claude  --https-->  Tailscale Funnel  -->  127.0.0.1:3847 on your Mac  -->  Messages
+```
+
+Funnel does not put a login in front of the address, so the server does its own OAuth 2.1 sign-in (dynamic client registration and PKCE, as the MCP authorization spec describes). It is single user: a client only gets a token after someone types your passphrase on the consent page. Every tool is available remotely, including `send_message`, `react_to_message` and, with their flag, the delete tools, so pick a strong passphrase.
+
+### Setup
+
+1. Install and test the server as in [Install](#install). Use Node 24.
+
+2. Set a passphrase (at least 12 characters). It is stored as a scrypt hash in `~/.imessage-mcp/passphrase.json`:
+
+   ```bash
+   node index.js --set-passphrase
+   ```
+
+3. Install Tailscale for macOS, sign in, and turn on **Launch at login** in its settings. In the Tailscale admin console, make sure MagicDNS and HTTPS certificates are on. If the `tailscale` command is missing, install the CLI from the app's settings.
+
+4. Turn on Funnel for the server's port. `--bg` keeps it configured across restarts. If Funnel is not yet allowed on your tailnet, the command prints a link to enable it.
+
+   ```bash
+   tailscale funnel --bg 3847
+   tailscale funnel status   # shows your https://<machine>.<tailnet>.ts.net address
+   ```
+
+5. Install the LaunchAgent with that address. To enable release flags remotely, set `IMESSAGE_MCP_RELEASES` on the same line.
+
+   ```bash
+   scripts/install-launchagent.sh https://my-mac.my-tailnet.ts.net
+   # or, with flags:
+   IMESSAGE_MCP_RELEASES=message_mutation_tools scripts/install-launchagent.sh https://my-mac.my-tailnet.ts.net
+   ```
+
+6. Grant Full Disk Access to the Node binary the script prints (System Settings > Privacy & Security > Full Disk Access, then **+** and press Cmd-Shift-G to paste the path). LaunchAgents do not inherit your terminal's access, so this step is required. Then restart the server:
+
+   ```bash
+   launchctl kickstart -k gui/$(id -u)/local.imessage-mcp
+   curl -s http://127.0.0.1:3847/health
+   ```
+
+   `"messages_database": "readable"` means the permission took effect.
+
+7. In Claude, add a custom connector (Settings > Connectors) with the URL `https://my-mac.my-tailnet.ts.net/mcp`. Connecting opens the consent page. Enter your passphrase and choose **Allow**.
+
+The first time a send or tapback runs, macOS asks whether `node` may control Messages. Allow it once while you are at the Mac.
+
+### Staying up on its own
+
+- **Login and crashes.** The LaunchAgent has `RunAtLoad` and `KeepAlive`, so launchd starts the server when you log in and restarts it within about 10 seconds if it exits.
+- **Network drops.** The server only listens on `127.0.0.1`, so losing Wi-Fi does not affect it. Tailscale reconnects on its own when the network comes back, and the Funnel address stays the same.
+- **Sleep and shutdown.** Nothing is reachable while the Mac is asleep or off. When it wakes or boots and you log in, both services come back without anything from you.
+- **Reboots.** A LaunchAgent needs a logged-in user, because reading Messages needs your user session. Automatic login brings it up after a reboot, but FileVault disables automatic login, so with FileVault on the server starts once you log in.
+
+### Health and logs
+
+- `GET /health` needs no token and returns `{"status":"ok","version":"...","messages_database":"readable"}`. If the request fails, the Mac or the tunnel is down. If it answers with `"unreadable"`, the server is up but Full Disk Access is missing.
+- Logs go to `~/Library/Logs/imessage-mcp/server.log`: startup, one line per request (method, path, status, time), and sign-in events. Message content, tokens and query strings are never logged. Delete the file whenever it gets large; launchd creates a new one on the next restart.
+
+### Maintenance
+
+- **After `git pull`:** run `npm install`, then `launchctl kickstart -k gui/$(id -u)/local.imessage-mcp`.
+- **After upgrading Node:** run the install script again and grant Full Disk Access to the new binary it prints. The old grant points at the old path.
+- **Sign out every client:** run `node index.js --set-passphrase` again. It replaces the passphrase and deletes all saved tokens, then restart the server.
+- **Remove it:** run `scripts/uninstall-launchagent.sh`, then `tailscale funnel reset` to turn Funnel off. The passphrase and tokens stay in `~/.imessage-mcp` until you delete that folder.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `IMESSAGE_MCP_TRANSPORT` | `stdio` | Set to `http` to start remote mode, same as `--http` |
+| `IMESSAGE_MCP_PUBLIC_URL` | none, required | The public origin clients use, for example `https://my-mac.my-tailnet.ts.net` |
+| `IMESSAGE_MCP_PORT` | `3847` | Local port |
+| `IMESSAGE_MCP_HOST` | `127.0.0.1` | Local address to listen on. Keep it on loopback |
+| `IMESSAGE_MCP_STATE_DIR` | `~/.imessage-mcp` | Where the passphrase hash and OAuth state live |
+
+### How the sign-in works
+
+- `/.well-known/oauth-protected-resource/mcp` and `/.well-known/oauth-authorization-server` describe the server so clients can find the other endpoints.
+- `/register` lets a client register itself. Registration alone grants nothing.
+- `/authorize` shows the consent page. A wrong passphrase issues nothing, and five wrong tries lock sign-in for 15 minutes.
+- `/token` exchanges the code (with PKCE) for an access token that lasts an hour and a refresh token that lasts 30 days. Refresh tokens are single use.
+- `/mcp` needs a valid access token. Each MCP session is tied to the client that opened it.
+
+Tokens are stored only as SHA-256 hashes, in `~/.imessage-mcp/oauth.json` with mode 600.
 
 ## Tools
 
@@ -223,13 +314,13 @@ This server can read your whole message history and contacts, and send messages 
 
 **What it sends**
 
-The server makes no network requests of its own and has no analytics. Message text and images you ask for are returned to your MCP client, and from there to whatever model that client uses. Check your client's and model provider's privacy terms. Messages you send go out through the Messages app like any other message.
+The server makes no outgoing network requests of its own and has no analytics. In stdio mode it talks only to the client that started it. In remote mode it also accepts incoming HTTPS requests through Tailscale Funnel from anyone who signs in with your passphrase. Message text and images you ask for are returned to your MCP client, and from there to whatever model that client uses. Check your client's and model provider's privacy terms. Messages you send go out through the Messages app like any other message.
 
 **macOS permissions you must grant**
 
 | Permission | Where | Needed for |
 |------------|-------|------------|
-| Full Disk Access | System Settings > Privacy & Security > Full Disk Access | Reading `chat.db` and the AddressBook databases. Grant it to the terminal or app that launches the server. |
+| Full Disk Access | System Settings > Privacy & Security > Full Disk Access | Reading `chat.db` and the AddressBook databases. Grant it to the terminal or app that launches the server. In remote mode, grant it to the Node binary the install script prints. |
 | Automation | Prompted on first use (System Settings > Privacy & Security > Automation) | `osascript` control of Messages for `send_message`, `send_message_batch` and `react_to_message`. Also System Events for the UI tools. |
 | Accessibility | System Settings > Privacy & Security > Accessibility | Only for `edit_message`, `undo_send_message` and failed-bubble cleanup, which drive the Messages window through System Events. |
 
@@ -269,12 +360,15 @@ iMessage attachments are stored in `~/Library/Messages/Attachments/` with paths 
 Not through the confirmation tools. `send_message`, `send_message_batch` and `react_to_message` refuse unless `confirm` is `true`, and batches also need the approval token from a preview. The agent still decides when to call them, so keep tool approval on in your client. `delete_messages` needs no confirmation when its flag is enabled.
 
 **Does my data leave my Mac?**
-The server itself sends nothing anywhere. Anything a tool returns goes to your MCP client and its model provider.
+The server itself sends nothing anywhere. Anything a tool returns goes to your MCP client and its model provider. In remote mode that response travels over HTTPS through Tailscale Funnel.
 
 ## Troubleshooting
 
 **"Failed to open iMessage database"**
 Grant Full Disk Access to the terminal or app that launches the server: System Settings > Privacy & Security > Full Disk Access.
+
+**Claude cannot connect to the remote server**
+Check `curl -s https://my-mac.my-tailnet.ts.net/health` from another network. If it fails, check `tailscale funnel status` and that the Mac is awake. If it works locally (`curl -s http://127.0.0.1:3847/health`) but not through the public address, Funnel is off. If the health check itself fails, read `~/Library/Logs/imessage-mcp/server.log`. A missing passphrase or `IMESSAGE_MCP_PUBLIC_URL` stops the server at startup and is logged there.
 
 **Contact lookup returns no results**
 Contact resolution reads the macOS AddressBook SQLite databases directly (no Contacts app needed). Make sure Full Disk Access is granted. If a contact was just added, restart the MCP server to refresh the cache.

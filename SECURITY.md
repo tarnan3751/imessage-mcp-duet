@@ -13,7 +13,7 @@ Only the latest release of iMessage MCP gets security fixes.
 
 Please report security problems privately, not in a public issue.
 
-Use GitHub private vulnerability reporting: open the **Security** tab of this repository and choose **Report a vulnerability**. If that is not available to you, email tyler@szakacsmedia.com.
+Use GitHub private vulnerability reporting: open the **Security** tab of this repository and choose **Report a vulnerability**. Problems in code that also exists upstream can go to [tszaks/imessage-mcp](https://github.com/tszaks/imessage-mcp) as well.
 
 Please include:
 
@@ -23,7 +23,7 @@ Please include:
 
 Do not include real messages or contact details in a report.
 
-You can expect a first reply within a few days. Once a fix is released we will credit you in the changelog unless you prefer to stay anonymous.
+You can expect a first reply within a few days. Once a fix is released I will credit you in the changelog unless you prefer to stay anonymous.
 
 ## Sensitive surface
 
@@ -33,6 +33,7 @@ This server can read all of a user's messages, attachments and contacts, and can
 - Any way to run a mutation tool without its release flag.
 - Shell or AppleScript injection through a recipient, message text or snippet (the server builds `osascript` and `sips` commands).
 - Reading or returning files outside `~/Library/Messages` through `get_attachment`.
-- Any network request. The server makes none.
+- Any outgoing network request. The server makes none.
+- In remote mode (`--http`): any way to reach `/mcp` without a valid token, get a token without the passphrase, use another client's session, or read the passphrase hash or tokens from the state directory.
 
 See the [Permissions and privacy](README.md#permissions-and-privacy) section of the README.

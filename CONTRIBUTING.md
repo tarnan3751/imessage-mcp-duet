@@ -16,8 +16,8 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 You need a Mac, Node.js 18 or newer and older than 26 (Node 24 LTS recommended), and npm.
 
 ```sh
-git clone https://github.com/tszaks/imessage-mcp.git
-cd imessage-mcp
+git clone https://github.com/tarnan3751/imessage-mcp-duet.git
+cd imessage-mcp-duet
 npm install
 ```
 
