@@ -74,6 +74,9 @@ async function openConsent(baseUrl, client, challenge) {
   }).toString();
   const res = await fetch(url, { redirect: 'manual' });
   assert.equal(res.status, 200);
+  // Without the redirect origin in form-action, browsers block the redirect after Allow
+  const formAction = res.headers.get('content-security-policy').match(/form-action ([^;]+)/)[1].split(' ');
+  assert.ok(formAction.includes(new URL(REDIRECT_URI).origin), 'consent page allows the redirect origin');
   const html = await res.text();
   const match = html.match(/name="consent_id" value="([^"]+)"/);
   assert.ok(match, 'consent page has a consent id');
