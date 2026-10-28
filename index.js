@@ -29,7 +29,34 @@ const UNDO_SEND_WINDOW_SECONDS = 2 * 60;
 
 class IMessageServer {
   constructor(options = {}) {
-    this.server = new Server(
+    this.runScript = options.runScript || ((script) => execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`));
+    this.releaseFlags = new Set((process.env.IMESSAGE_MCP_RELEASES || '')
+      .split(',')
+      .map(flag => flag.trim())
+      .filter(Boolean));
+    this.backupMessagesDb = options.backupMessagesDb || this.backupMessagesDb.bind(this);
+    this.server = this.createServer();
+
+    // Contact cache — lazy loaded on first use
+    this._contactCache = null;
+    this._nameToHandles = null;
+    this._cacheInitialized = false;
+
+    // The HTTP mode builds many servers from one instance and handles signals itself
+    if (options.handleSignals !== false) {
+      process.on('SIGINT', async () => {
+        await this.server.close();
+        process.exit(0);
+      });
+    }
+  }
+
+  /**
+   * Build an MCP server wired to this instance's tool handlers. Stdio mode uses
+   * one; HTTP mode makes one per client session so they share the contact cache.
+   */
+  createServer() {
+    const server = new Server(
       {
         name: 'imessage-server',
         version: SERVER_VERSION,
@@ -40,26 +67,9 @@ class IMessageServer {
         },
       }
     );
-
-    this.runScript = options.runScript || ((script) => execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`));
-    this.releaseFlags = new Set((process.env.IMESSAGE_MCP_RELEASES || '')
-      .split(',')
-      .map(flag => flag.trim())
-      .filter(Boolean));
-    this.backupMessagesDb = options.backupMessagesDb || this.backupMessagesDb.bind(this);
-    this.setupToolHandlers();
-
-    // Contact cache — lazy loaded on first use
-    this._contactCache = null;
-    this._nameToHandles = null;
-    this._cacheInitialized = false;
-
-    // Error handling
-    this.server.onerror = (error) => console.error('[MCP Error]', error);
-    process.on('SIGINT', async () => {
-      await this.server.close();
-      process.exit(0);
-    });
+    this.setupToolHandlers(server);
+    server.onerror = (error) => console.error('[MCP Error]', error);
+    return server;
   }
 
   /**
@@ -770,8 +780,8 @@ class IMessageServer {
     `;
   }
 
-  setupToolHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  setupToolHandlers(server) {
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         {
           name: 'read_recent_messages',
@@ -1171,7 +1181,7 @@ class IMessageServer {
       ],
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
         switch (request.params.name) {
           case 'read_recent_messages':
@@ -1225,6 +1235,19 @@ class IMessageServer {
         };
       }
     });
+  }
+
+  /**
+   * Whether chat.db can be opened. Without Full Disk Access macOS refuses the open,
+   * so this is how /health tells a missing permission apart from a down server.
+   */
+  messagesDatabaseReadable() {
+    try {
+      fs.closeSync(fs.openSync(DB_PATH, 'r'));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   openDatabase(options = {}) {
@@ -3065,8 +3088,24 @@ class IMessageServer {
 }
 
 if (require.main === module) {
-  const server = new IMessageServer();
-  server.run().catch(console.error);
+  const args = process.argv.slice(2);
+  if (args.includes('--set-passphrase')) {
+    require('./lib/auth').setPassphraseInteractive().catch((error) => {
+      console.error(error.message);
+      process.exit(1);
+    });
+  } else if (args.includes('--http') || process.env.IMESSAGE_MCP_TRANSPORT === 'http') {
+    require('./lib/http').startHttpServer({
+      imessage: new IMessageServer({ handleSignals: false }),
+      version: SERVER_VERSION,
+    }).catch((error) => {
+      console.error(error.message);
+      process.exit(1);
+    });
+  } else {
+    const server = new IMessageServer();
+    server.run().catch(console.error);
+  }
 }
 
-module.exports = { IMessageServer };
+module.exports = { IMessageServer, SERVER_VERSION };

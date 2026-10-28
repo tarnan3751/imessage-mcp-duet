@@ -5,6 +5,7 @@ All notable changes to iMessage MCP are listed here. The format follows [Keep a 
 ## [Unreleased]
 
 ### Added
+- Remote mode: `--http` serves every tool over Streamable HTTP at `/mcp`, for use as a Claude custom connector through Tailscale Funnel. Includes a single-owner OAuth 2.1 sign-in (dynamic client registration, PKCE, a passphrase set with `--set-passphrase`), a `/health` endpoint, request logging, and a LaunchAgent install script.
 - Documentation: rewritten README with a tools table, client configuration for Claude Code, Codex and Claude Desktop, and a permissions and privacy section. Added CONTRIBUTING, SECURITY, Code of Conduct, AGENTS, issue and pull request templates, and a CI workflow.
 
 ## [1.5.1] - 2026-06-05

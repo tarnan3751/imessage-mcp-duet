@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security problem
-    url: https://github.com/tszaks/imessage-mcp/security/advisories/new
+    url: https://github.com/tarnan3751/imessage-mcp-duet/security/advisories/new
     about: Please report security problems privately, not in a public issue.
