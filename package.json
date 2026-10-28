@@ -8,6 +8,8 @@
   },
   "scripts": {
     "start": "node index.js",
+    "start:http": "node index.js --http",
+    "set-passphrase": "node index.js --set-passphrase",
     "test": "node --test"
   },
   "keywords": [
@@ -27,7 +29,7 @@
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tszaks/imessage-mcp"
+    "url": "https://github.com/tarnan3751/imessage-mcp-duet"
   },
   "engines": {
     "node": ">=18.0.0 <26"
@@ -37,6 +39,7 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
-    "better-sqlite3": "^12.6.2"
+    "better-sqlite3": "^12.6.2",
+    "express": "^5.2.1"
   }
 }
