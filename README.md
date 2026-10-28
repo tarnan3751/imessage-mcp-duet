@@ -11,7 +11,21 @@
   <img src="https://img.shields.io/badge/Node-18%E2%80%9325-green" alt="Node 18 to 25">
 </p>
 
-This is my fork of [tszaks/imessage-mcp](https://github.com/tszaks/imessage-mcp). I added an HTTP mode with an OAuth sign-in so I can add it to Claude as a custom connector and reach my messages from anywhere, served from my Mac through Tailscale Funnel. The local stdio mode works the same as upstream. See [Remote access](#remote-access-claude-custom-connector).
+This is my fork of [tszaks/imessage-mcp](https://github.com/tszaks/imessage-mcp). All the original tools and the local stdio mode work the same as upstream.
+
+## What this fork adds
+
+The original server only runs over stdio, so it only works with an MCP client on the same Mac. I wanted Claude to read and send my texts from anywhere, including my phone, as a custom connector. I also wanted it served from my own Mac without paying for a domain, and running without me having to restart anything.
+
+What I added:
+
+- **HTTP mode.** `node index.js --http` serves every tool over Streamable HTTP at `/mcp`, alongside the stdio mode. Send, react and delete are all still there, behind the same confirmation and release-flag gates.
+- **OAuth sign-in.** Funnel puts the server on a public address with no login in front of it, so the server handles its own sign-in. It uses OAuth 2.1 with dynamic client registration and PKCE, which is what Claude custom connectors expect. A client only gets a token after my passphrase is typed on the consent page, and five wrong tries lock sign-in for 15 minutes.
+- **Tailscale Funnel.** It gives my Mac a fixed `https://<machine>.<tailnet>.ts.net` address. Funnel is free on the Personal plan and needs no domain.
+- **LaunchAgent.** `scripts/install-launchagent.sh` starts the server when I log in and restarts it if it exits, so I never have to start it by hand.
+- **Health check and logs.** `/health` shows whether the server is up and can read the Messages database, so a Mac that's offline can be told apart from a missing Full Disk Access grant. Logs go to `~/Library/Logs/imessage-mcp/server.log`.
+
+I've tested it on my Mac with Claude: reading messages, sending a text, recovering after Wi-Fi drops (Funnel takes a few minutes to reconnect) and coming back after a restart all work. Setup steps are in [Remote access](#remote-access-claude-custom-connector).
 
 ```text
 You:    What did Mom text me today?
